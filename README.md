@@ -79,7 +79,3 @@ ncu --set full --kernel-name regex:'(matmul|softmax|layernorm)_kernel' \
 ```
 
 The Nsight Systems report is written under `results/`. In Nsight Compute, inspect global-memory load/store efficiency, achieved occupancy, shared-memory usage, warp stalls, and FLOP throughput. Profile without `--check` so CPU reference work does not clutter the trace.
-
-## Notes on performance claims
-
-Speedup depends heavily on hardware and shape. Do not hard-code a “20×” claim: capture the executable output and Nsight report on the target GPU, then report the exact configuration. PyTorch matmul normally dispatches to highly tuned cuBLAS and is expected to beat this teaching kernel for many shapes.
