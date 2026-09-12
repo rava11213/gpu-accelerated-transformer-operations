@@ -1,0 +1,7 @@
+build/
+results/
+*.o
+*.nsys-rep
+*.sqlite
+__pycache__/
+
