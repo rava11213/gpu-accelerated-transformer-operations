@@ -8,6 +8,19 @@ namespace transformer_ops {
 constexpr int TILE = 16;
 constexpr int BLOCK = 256;
 
+// Deliberately simple baseline: one thread computes one output and rereads
+// both operands from global memory. It makes the benefit of tiling measurable.
+__global__ void matmul_naive_kernel(const float* __restrict__ a,
+                                    const float* __restrict__ b,
+                                    float* __restrict__ c, int m, int n, int k) {
+  const int row = blockIdx.y * blockDim.y + threadIdx.y;
+  const int col = blockIdx.x * blockDim.x + threadIdx.x;
+  if (row >= m || col >= n) return;
+  float sum = 0.0f;
+  for (int p = 0; p < k; ++p) sum = fmaf(a[row * k + p], b[p * n + col], sum);
+  c[row * n + col] = sum;
+}
+
 // C[M,N] = A[M,K] * B[K,N], row-major. Shared-memory tiling cuts
 // redundant global reads; adjacent threads read adjacent elements.
 __global__ void matmul_kernel(const float* __restrict__ a,
@@ -112,10 +125,65 @@ __global__ void layernorm_kernel(const float* __restrict__ x,
     y[row * cols + col] = (x[row * cols + col] - mean) * inv_std_shared * gamma[col] + beta[col];
 }
 
+// Fuses the residual addition and layer normalization used around transformer
+// sublayers. The sum is written once for the residual stream while statistics
+// and normalization are computed without an intermediate add kernel.
+__global__ void residual_layernorm_kernel(const float* __restrict__ x,
+                                          const float* __restrict__ residual,
+                                          const float* __restrict__ gamma,
+                                          const float* __restrict__ beta,
+                                          float* __restrict__ y,
+                                          float* __restrict__ residual_out,
+                                          int rows, int cols, float epsilon) {
+  __shared__ float warp_values[32];
+  __shared__ float mean_shared, inv_std_shared;
+  const int row = blockIdx.x;
+  if (row >= rows) return;
+
+  float sum = 0.0f;
+  for (int col = threadIdx.x; col < cols; col += blockDim.x) {
+    const int i = row * cols + col;
+    const float value = x[i] + residual[i];
+    residual_out[i] = value;
+    sum += value;
+  }
+  sum = warp_sum(sum);
+  if ((threadIdx.x & 31) == 0) warp_values[threadIdx.x >> 5] = sum;
+  __syncthreads();
+  float total = threadIdx.x < (blockDim.x + 31) / 32 ? warp_values[threadIdx.x] : 0.0f;
+  if (threadIdx.x < 32) total = warp_sum(total);
+  if (threadIdx.x == 0) mean_shared = total / cols;
+  __syncthreads();
+
+  const float mean = mean_shared;
+  float sq_sum = 0.0f;
+  for (int col = threadIdx.x; col < cols; col += blockDim.x) {
+    const float d = residual_out[row * cols + col] - mean;
+    sq_sum = fmaf(d, d, sq_sum);
+  }
+  sq_sum = warp_sum(sq_sum);
+  if ((threadIdx.x & 31) == 0) warp_values[threadIdx.x >> 5] = sq_sum;
+  __syncthreads();
+  float sq_total = threadIdx.x < (blockDim.x + 31) / 32 ? warp_values[threadIdx.x] : 0.0f;
+  if (threadIdx.x < 32) sq_total = warp_sum(sq_total);
+  if (threadIdx.x == 0) inv_std_shared = rsqrtf(sq_total / cols + epsilon);
+  __syncthreads();
+  for (int col = threadIdx.x; col < cols; col += blockDim.x) {
+    const int i = row * cols + col;
+    y[i] = (residual_out[i] - mean) * inv_std_shared * gamma[col] + beta[col];
+  }
+}
+
 inline void launch_matmul(const float* a, const float* b, float* c, int m, int n, int k,
                           cudaStream_t stream = nullptr) {
   dim3 block(TILE, TILE), grid((n + TILE - 1) / TILE, (m + TILE - 1) / TILE);
   matmul_kernel<<<grid, block, 0, stream>>>(a, b, c, m, n, k);
+}
+
+inline void launch_matmul_naive(const float* a, const float* b, float* c,
+                                int m, int n, int k, cudaStream_t stream = nullptr) {
+  dim3 block(TILE, TILE), grid((n + TILE - 1) / TILE, (m + TILE - 1) / TILE);
+  matmul_naive_kernel<<<grid, block, 0, stream>>>(a, b, c, m, n, k);
 }
 
 inline void launch_softmax(const float* x, float* y, int rows, int cols,
@@ -129,5 +197,14 @@ inline void launch_layernorm(const float* x, const float* gamma, const float* be
   layernorm_kernel<<<rows, BLOCK, 0, stream>>>(x, gamma, beta, y, rows, cols, epsilon);
 }
 
-}  // namespace transformer_ops
 
+inline void launch_residual_layernorm(const float* x, const float* residual,
+                                      const float* gamma, const float* beta,
+                                      float* y, float* residual_out, int rows, int cols,
+                                      float epsilon = 1e-5f,
+                                      cudaStream_t stream = nullptr) {
+  residual_layernorm_kernel<<<rows, BLOCK, 0, stream>>>(
+      x, residual, gamma, beta, y, residual_out, rows, cols, epsilon);
+}
+
+}  // namespace transformer_ops
