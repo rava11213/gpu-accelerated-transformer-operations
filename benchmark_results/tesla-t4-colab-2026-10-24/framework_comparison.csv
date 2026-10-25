@@ -1,0 +1,6 @@
+operation,shape,custom_cuda_ms,pytorch_ms,custom_speedup_vs_pytorch
+matmul,1024x1024x1024,2.995921,0.6130,0.2046
+softmax,4096x768,0.157716,0.1168,0.7406
+layernorm,4096x768,0.136563,0.1296,0.9490
+residual-layernorm,4096x768,0.209306,0.2698,1.2890
+

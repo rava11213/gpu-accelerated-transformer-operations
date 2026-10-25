@@ -79,3 +79,12 @@ ncu --set full --kernel-name regex:'(matmul|softmax|layernorm)_kernel' \
 ```
 
 The Nsight Systems report is written under `results/`. In Nsight Compute, inspect global-memory load/store efficiency, achieved occupancy, shared-memory usage, warp stalls, and FLOP throughput. Profile without `--check` so CPU reference work does not clutter the trace.
+
+## Verified results
+
+On an NVIDIA Tesla T4, the fused residual-layernorm kernel ran in **0.209 ms**
+versus **0.270 ms** for the matched PyTorch operation at a `4096 x 768` shape
+(**1.29x faster**). Shared-memory tiling improved custom `1024^3` matmul from
+4.220 ms to 2.996 ms (**1.41x faster than the naive kernel**). All tested
+shapes passed CPU-reference correctness checks. Raw results and environment
+details are under [`benchmark_results/tesla-t4-colab-2026-10-24`](benchmark_results/tesla-t4-colab-2026-10-24/README.md).
