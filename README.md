@@ -82,9 +82,10 @@ The Nsight Systems report is written under `results/`. In Nsight Compute, inspec
 
 ## Verified results
 
-On an NVIDIA Tesla T4, the fused residual-layernorm kernel ran in **0.209 ms**
-versus **0.270 ms** for the matched PyTorch operation at a `4096 x 768` shape
-(**1.29x faster**). Shared-memory tiling improved custom `1024^3` matmul from
-4.220 ms to 2.996 ms (**1.41x faster than the naive kernel**). All tested
+On an NVIDIA Tesla T4, the fused residual-layernorm kernel ran in **0.217 ms**
+versus **0.266 ms** for the matched PyTorch operation at a `4096 x 768` shape
+(**1.23x faster**). A 32 x 32 shared-memory tile with 2 x 2 register tiling
+improved custom `1024^3` matmul from 4.232 ms to 1.517 ms (**2.79x faster than
+the naive kernel**). All tested
 shapes passed CPU-reference correctness checks. Raw results and environment
 details are under [`benchmark_results/tesla-t4-colab-2026-10-24`](benchmark_results/tesla-t4-colab-2026-10-24/README.md).

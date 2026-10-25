@@ -1,9 +1,10 @@
 # Tesla T4 benchmark — 2026-10-24
 
 These measurements were collected in a Google Colab T4 runtime from commit
-`5e5ecd8`. All custom CUDA results use 10 warmup iterations and 100 timed
-iterations unless the sweep script specifies otherwise. Timings use CUDA events
-and exclude allocation and host/device transfer.
+`89f9846`. The shape sweep uses 10 warmup iterations and 100 timed iterations;
+the matched framework comparison uses 20 warmup iterations and 200 timed
+iterations. Timings use CUDA events and exclude allocation and host/device
+transfer.
 
 ## Environment
 
@@ -18,13 +19,14 @@ At a 4096 x 768 rowwise shape:
 
 | Operation | Custom CUDA | PyTorch | Custom / PyTorch |
 |---|---:|---:|---:|
-| Softmax | 0.1577 ms | 0.1168 ms | 1.35x slower |
-| LayerNorm | 0.1366 ms | 0.1296 ms | 1.05x slower |
-| Residual + LayerNorm | 0.2093 ms | 0.2698 ms | **1.29x faster** |
+| Softmax | 0.1788 ms | 0.1160 ms | 1.54x slower |
+| LayerNorm | 0.1620 ms | 0.1096 ms | 1.48x slower |
+| Residual + LayerNorm | 0.2168 ms | 0.2662 ms | **1.23x faster** |
 
-For 1024 x 1024 x 1024 matrix multiplication, shared-memory tiling reduced
-kernel time from 4.2204 ms to 2.9959 ms, a **1.41x speedup** over the naive
-custom kernel. PyTorch/cuBLAS remained faster at 0.6130 ms.
+For 1024 x 1024 x 1024 matrix multiplication, 32 x 32 shared-memory tiling
+with 2 x 2 register tiles reduced kernel time from 4.2320 ms to 1.5170 ms, a
+**2.79x speedup** over the naive custom kernel. PyTorch/cuBLAS remained faster
+at 0.6436 ms in the separately timed framework comparison.
 
 Every tested kernel passed its CPU-reference correctness check. See
 `sweep.csv` for the full shape sweep and `framework_comparison.csv` for matched
